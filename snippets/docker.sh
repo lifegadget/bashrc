@@ -55,33 +55,32 @@ function locker () {
 		echo ""
 		echo "commands include 'ls', 'update', 'status', etc."
 		echo ""
-		exit 0;
-	fi
-
-	locker="$1"
-	if [[ -z "$2" ]];then
-		command="status"
 	else
-		command="$2"
-	fi
+
+		locker="$1"
+		if [[ -z "$2" ]];then
+			command="status"
+		else
+			command="$2"
+		fi
 	
-	declare -a STATELESS=("ls" "cat" "pull" "update-dep")
-	case " ${STATELESS[*]} " in
-		*\ $command\ *)
-			# Stateless command, therefore remove image after completion
-			sudo docker run \
-				--volumes-from ${locker} \
-				--rm \
-				"lifegadget/docker-locker" \
-				${command} "$3"			
-			;;
-		*)
-			# Statefull command ... aka, involved in setting up a locker
-			sudo docker run \
-				--volumes-from ${locker} \
-				"lifegadget/docker-locker" \
-				${command} "$3"
-			;;
-	esac
-	
+		declare -a STATELESS=("ls" "cat" "pull" "update-dep")
+		case " ${STATELESS[*]} " in
+			*\ $command\ *)
+				# Stateless command, therefore remove image after completion
+				sudo docker run \
+					--volumes-from ${locker} \
+					--rm \
+					"lifegadget/docker-locker" \
+					${command} "$3"			
+				;;
+			*)
+				# Statefull command ... aka, involved in setting up a locker
+				sudo docker run \
+					--volumes-from ${locker} \
+					"lifegadget/docker-locker" \
+					${command} "$3"
+				;;
+		esac
+	fi	
 }
