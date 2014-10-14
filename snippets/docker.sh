@@ -49,6 +49,7 @@ function container () {
 	fi
 }
 
+# Management of lifegadget/docker-locker data storage
 function locker () {
 	if [[ -z "$1" ]];then 
 		echo "Usage: locker [name] [cmd]"
