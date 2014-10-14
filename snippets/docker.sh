@@ -54,7 +54,7 @@ function locker () {
 	if [[ -z "$1" ]];then 
 		echo "Usage: locker [name] [cmd]"
 		echo ""
-		echo "commands include 'ls', 'update', 'status', etc."
+		echo "commands include: ls cat load empty pull update-dep hashtag branch status ... and more"
 		echo ""
 	else
 
@@ -64,8 +64,7 @@ function locker () {
 		else
 			command="$2"
 		fi
-	
-		declare -a STATELESS=("ls" "cat" "pull" "update-dep")
+		declare -a STATELESS=("ls" "cat" "pull" "update-dep" "hashtag" "status" "branch")	
 		case " ${STATELESS[*]} " in
 			*\ $command\ *)
 				# Stateless command, therefore remove image after completion
