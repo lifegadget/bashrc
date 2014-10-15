@@ -77,7 +77,6 @@ function locker () {
 			*)
 				# Statefull command ... aka, involved in setting up a locker
 				sudo docker run \
-					--volumes-from ${locker} \
 					"lifegadget/docker-locker" \
 					${command} "$3"
 				;;
