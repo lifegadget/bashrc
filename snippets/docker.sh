@@ -77,8 +77,8 @@ function locker () {
 			*)
 				# Statefull command ... aka, involved in setting up a locker
 				sudo docker run \
-					"lifegadget/docker-locker" \
 					--name ${locker} \
+					"lifegadget/docker-locker" \
 					${command} "$3"
 				;;
 		esac
