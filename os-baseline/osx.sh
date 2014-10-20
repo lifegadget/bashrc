@@ -15,7 +15,7 @@ LIGHTRED='\e[1;31m'
 LIGHTPURPLE='\e[1;35m'
 YELLOW='\e[1;33m'
 WHITE='\e[1;37m'
-NC='\e[0m'        
+NC='\e[0m'
 
 BOLD='\[\033[1m\]'
 BOLD_OFF='[\033[m\]'
