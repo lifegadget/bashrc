@@ -1,0 +1,61 @@
+#!/bin/bash
+
+DEBIAN_FRONTEND=noninteractive
+echo "Provisioning Vagrant machine for Common/Simple Tasks"
+echo "----------------------------------------------------"
+export LANGUAGE=en_US.UTF-8
+export LANG=en_US.UTF-8
+export LC_ALL=en_US.UTF-8
+locale-gen en_US.UTF-8
+echo "deb https://get.docker.io/ubuntu docker main" > /etc/apt/sources.list.d/docker.list
+apt-key adv --keyserver keyserver.ubuntu.com --recv-keys D8576A8BA88D21E9 > /dev/null
+echo "Updating APT"
+apt-get update > /dev/null
+echo "Installing Base packages"
+apt-get install -yqq vim wget htop lxc-docker
+
+# SpiderMonkey, jsawk, and resty
+apt-get install -yqq librtmp0 python-httplib2 libmozjs-24-bin telnet git
+apt-get autoremove -yqq
+echo "Installing Spidermonkey"
+if [[ -a "/usr/local/bin/js" ]];then
+	echo "- 'js' symbolic link to Spidermonkey seems to already be in place, skipping."
+else
+	ln -s /usr/bin/js24 /usr/local/bin/js
+fi
+# jsawk
+if [[ -a "/usr/local/bin/jsawk" ]];then
+	echo "- 'jsawk' executable already in place, skipping."
+else
+	wget --quiet -O/usr/local/bin/jsawk http://github.com/micha/jsawk/raw/master/jsawk
+	echo "export JS=/usr/local/bin/js" > /etc/jsawkrc
+fi
+# resty
+if [[ -a "/usr/local/bin/resty" ]];then
+	echo "- 'resty' script already in place, skipping."
+else
+	wget --quiet -O/usr/local/bin/resty http://github.com/micha/resty/raw/master/resty 
+fi
+# final prep for spidermonkey
+chmod +x /usr/local/bin/jsawk /usr/local/bin/resty
+{ \
+	echo ""; \
+	echo "source /usr/local/bin/resty -W 'http://localhost:8091/pools/default'"; \
+	echo ""; \
+} >> /etc/bash.bashrc
+echo "- Spidermonkey js, jsawk, and resty are installed"
+
+# Add a nicer bashrc config
+wget --quiet -O/etc/bash.history https://raw.githubusercontent.com/lifegadget/bashrc/master/snippets/history.sh
+wget --quiet -O/etc/bash.color https://raw.githubusercontent.com/lifegadget/bashrc/master/snippets/color.sh
+wget --quiet -O/etc/bash.shortcuts https://raw.githubusercontent.com/lifegadget/bashrc/master/snippets/shortcuts.sh
+wget --quiet -O/etc/bash.docker https://raw.githubusercontent.com/lifegadget/bashrc/master/snippets/docker.sh
+{ \
+	echo ""; \
+	echo 'source /etc/bash.history'; \
+	echo 'source /etc/bash.color'; \
+	echo 'source /etc/bash.shortcuts'; \
+	echo 'source /etc/bash.docker'; \
+} >> /etc/bash.bashrc
+source /etc/bash.bashrc
+echo "- Bash shell niceties are sourced (see /etc/bash.*)"
