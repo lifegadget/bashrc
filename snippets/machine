@@ -6,11 +6,17 @@ configFile="machine-example.conf"
 configuration=`cat $configFile`
 lockers=`echo $configuration | jsawk 'return this.lockers'`
 infrastructure=`echo $configuration | jsawk 'return this.infrastructure'`
+if [[ -z "$SSH_AUTH_SOCK" ]]; then
+	sshAgentForDocker=""	
+else
+	sshAgentForDocker=" -v ${SSH_AUTH_SOCK}:/ssh-agent -e SSH_AUTH_SOCK=/ssh-agent "
+fi
 declare -A DICTIONARY
 declare -a BASH_ARRAY
+declare -a lockerNonTransients
 
 # ensure that bash is on 4.x version
-function validateBashVersion() {
+function ValidateBashVersion() {
 	bashVersion;
 	if [[ "${BASH_MAJOR}" -lt 4 ]]; then
 		echo -e "${BOLD}${RED}ERROR:${NORMAL} you must use at least version ${GREEN}4.x${NORMAL} of bash to use this script!"
@@ -61,8 +67,24 @@ function getArray() {
 	fi
 }
 
+# tests whether an array has a given string. signature is: containsElement "string" "${arrayVar[@]}"
+function containsElement () {	
+	local e
+	for e in "${@:2}"; do [[ "$e" == "$1" ]] && return 0; done
+	return 1
+}
+
+function displayProperties() {
+	local declare -A object="$1"
+	for property in $object; do
+		if [[ "$property" != "id" ]]; then
+			echo -e "  - ${property}: ${DIM}${DICTIONARY[${property}]}${NORMAL}"
+		fi
+	done;
+}
+
 # list the lockers that this machine has
-function machineInventory() {
+function MachineInventory() {
 	verbose=0
 	output="text"
 	while getopts ":vco:" opt; do
@@ -85,50 +107,93 @@ function machineInventory() {
 	             exit 1
 	    esac
 	done
+
+	lockerList=`echo ${lockers} | jsawk -n 'out(this.id)'`
+	infraList=`echo ${infrastructure} | jsawk -n 'out(this.id)'`
 	
 	if [[ $verbose == 1 ]]; then 
 		echo ""
 		echo -e "${BOLD}Lockers${NORMAL} on this machine:"
 		echo "------------------------"
-		lockerList=`echo ${lockers} | jsawk -n 'out(this.id)'`
 		for locker in $lockerList; do
-			echo -e "LOCKER: ${BOLD}${locker}${NORMAL}"
+			echo -e "${BOLD}${GREEN}${locker}${NORMAL}"
 			container=`echo "${lockers}" | jsawk -q "[?(id='${locker}')]"`
 			getDictionary "${container}";
 			for property in $KEYS; do
-				echo -e "  - ${property}: ${DIM}${DICTIONARY[${property}]}${NORMAL}"
+				if [[ "$property" != "id" ]]; then
+					echo -e "  - ${property}: ${DIM}${DICTIONARY[${property}]}${NORMAL}"
+				fi
 			done;
 		done
 		echo ""
 		echo -e "${BOLD}Infrastructure${NORMAL} on this machine:"
 		echo "-------------------------------"
-		echo $infrastructure | jsawk 'return this.id'
+		for infraItem in $infraList; do
+			echo -e "${BOLD}${GREEN}${infraItem}${NORMAL}"
+			container=`echo "${infrastructure}" | jsawk -q "[?(id='${infraItem}')]"`
+			getDictionary "${container}";
+			for property in $KEYS; do
+				if [[ "$property" != "id" ]]; then
+					echo -e "  - ${property}: ${DIM}${DICTIONARY[${property}]}${NORMAL}"
+				fi
+			done;
+		done
 	else
 		echo "${lockers}" | jsawk -n 'out(this.id)'
-		echo "$infrastructure" | jsawk -n 'out(this.id)'
+		echo "${infrastructure}" | jsawk -n 'out(this.id)'
 	fi
 }
 
 # load all lockers with content and run any needed prep
-function loadLockers() {
+function LoadLockers() {
 	echo ""
 	echo "Loading all Lockers associated with this machine:"
 	echo "-------------------------------------------------"
 	lockerList=`echo "$lockers" | jsawk -n 'out(this.id)'`
-	for locker in lockerList; do
-		echo "$lockerList"
+	local lockerNonTransients=( "load" )
+	for locker in $lockerList; do
+		container=`echo "${lockers}" | jsawk -q "[?(id='${locker}')]"`
+		getDictionary "${container}";
+		local command="${DICTIONARY['init']:=load}"
+		local removeTransients
+		containsElement "$command" "${lockerNonTransients[@]}"
+		if [[ $? ]]; then
+			removeTransients=""
+		else
+			removeTransients="--rm"
+		fi
+		local source="${DICTIONARY['source']:=none}"
+		local type="${DICTIONARY['type']:=s3}"
+		local prep
+		if [[ -z "${DICTIONARY['prep']}" ]]; then
+			prep=" -e PREP=${DICTIONARY['prep']} "
+		else
+			prep=""
+		fi
+		local branch
+		if [[ "${type}" != "git" ]]; then
+			branch="";
+		else
+			branch=" -e BRANCH=${DICTIONARY['branch']:=master} "
+		fi
+		echo ""
+		echo -e "- starting ${BOLD}${locker}${NORMAL} with '${GREEN}${command}${NORMAL}' command"
+		local startCommand="sudo docker run ${removeTransients} --name ${locker}${branch}${prep}${sshAgentForDocker} lifegadget/docker-locker ${command} ${source}"
+		echo -e "     ${DIM}${startCommand}\033[0m"
+		echo "`${startCommand}`"
+		echo ""
 	done
-	
 }
 
 
-validateBashVersion;
+ValidateBashVersion;
 case "$1" in 
 	inventory)
 		shift;
-		machineInventory $@;
+		MachineInventory $@;
 	;;
 	init)
-		loadLockers;
+		shift;
+		LoadLockers $@;
 	;;
 esac
