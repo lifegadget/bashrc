@@ -59,8 +59,8 @@ function getDictionaryKeys() {
 function getArray() {
 	local json="$1" 
 	# ensure it looks like a JSON array
-	if [[ "json:0:1}" == "[" ]];then
-		BASH_ARRAY=`echo "json:1:-1}" | tr ',' '\n'`
+	if [[ "${json:0:1}" == "[" ]];then
+		BASH_ARRAY=`echo "${json:1:-1}" | tr ',' '\n'`
 	else 
 		# doesn't look like it was an array so just return the value
 		BASH_ARRAY="${json}"
@@ -68,10 +68,21 @@ function getArray() {
 }
 
 # tests whether an array has a given string. signature is: containsElement "string" "${arrayVar[@]}"
-function containsElement () {	
+function containsElement() {	
 	local e
 	for e in "${@:2}"; do [[ "$e" == "$1" ]] && return 0; done
 	return 1
+}
+
+# tests for a substring in a primary string
+function hasString() {
+	local lookFor="$1"; shift;
+	local lookIn="$2"; shift;
+	if [[ -z "${lookIn/*${lookFor}*/}" ]]; then 
+		return 0
+	else
+		return 1
+	fi
 }
 
 function displayProperties() {
@@ -149,12 +160,24 @@ function LoadLockers() {
 	echo ""
 	echo "Loading all Lockers associated with this machine:"
 	echo "-------------------------------------------------"
-	lockerList=`echo "$lockers" | jsawk -n 'out(this.id)'`
+	while getopts ":fv" opt; do
+	    case $opt in 
+	        v) 
+				verbose=1
+	            ;;
+	        f)
+				forceStart=1
+				;;
+	        \? ) echo "invalid switch used in StartInfrastructure call"
+	             exit 1
+	    esac
+	done
+	local lockerList=`echo "$lockers" | jsawk -n 'out(this.id)'`
 	local lockerNonTransients=( "load" )
 	for locker in $lockerList; do
 		container=`echo "${lockers}" | jsawk -q "[?(id='${locker}')]"`
 		getDictionary "${container}";
-		local command="${DICTIONARY['init']:=load}"
+		local command="${DICTIONARY['command']:=load}"
 		local removeTransients
 		containsElement "$command" "${lockerNonTransients[@]}"
 		if [[ $? ]]; then
@@ -176,6 +199,11 @@ function LoadLockers() {
 		else
 			branch=" -e BRANCH=${DICTIONARY['branch']:=master} "
 		fi
+		if [[ "$forceStart" == 1 ]];then
+			echo "   - forcing stop and removal of ${locker} container before attempting start"
+			sudo docker stop ${locker} >> machine.log
+			sudo docker rm ${locker} >> machine.log
+		fi
 		echo ""
 		echo -e "- starting ${BOLD}${locker}${NORMAL} with '${GREEN}${command}${NORMAL}' command"
 		local startCommand="sudo docker run ${removeTransients} --name ${locker}${branch}${prep}${sshAgentForDocker} lifegadget/docker-locker ${command} ${source}"
@@ -184,6 +212,135 @@ function LoadLockers() {
 		echo ""
 	done
 }
+
+function StartInfrastructure() {
+	echo ""
+	echo -e "Starting all ${BOLD}Infrastructure${NORMAL} associated with this machine:"
+	echo "---------------------------------------------------------"
+
+	while getopts ":fv" opt; do
+	    case $opt in 
+	        v) 
+				verbose=1
+	            ;;
+	        f)
+				forceStart=1
+				;;
+	        \? ) echo "invalid switch used in StartInfrastructure call"
+	             exit 1
+	    esac
+	done
+
+	local infraList=`echo "${infrastructure}" | jsawk -n 'out(this.id)'`
+	for infraItem in $infraList; do
+		echo "Processing ${infraItem}"
+		container=`echo "${infrastructure}" | jsawk -q "[?(id='${infraItem}')]"`
+		getDictionary "${container}";
+		local command="${DICTIONARY['command']:=start}"
+		local image="${DICTIONARY['image']:=ubuntu}"
+		local branch="${DICTIONARY['branch']:=latest}"
+		local links="${DICTIONARY['links']:=}"
+		local volumes="${DICTIONARY['volumes']:=}"
+		local ports="${DICTIONARY['ports']:=}"
+		local locker="${DICTIONARY['locker']:=}"
+		local sshForward="${DICTIONARY['sshForward']:=0}" # passing host's SSH credentials to infrastucture is optional
+		# convert variables to docker syntax
+		local dockerImage=" ${image}:${branch}"
+		if [[ ! -z "$locker" ]]; then
+			if [[ ${verbose} == 1 ]]; then
+				echo -e "   - ${DIM}${infraItem} container is using the ${NORMAL}${locker}${DIM} locker which is available at /storage in the container${NORMAL}"
+			fi
+			locker=" --volumesFrom ${locker}"
+		fi
+		# SSH FORWARDING
+		if [[ "${sshForward}" == 1 ]]; then	
+			sshForward=${sshAgentForDocker}
+		else
+			sshForward=""
+		fi	
+		# LINKS
+		local linksConfig=""
+		if [[ ${links:0:1} != "[" ]]; then
+			echo -e "${RED}${BOLD}ERROR:${NORMAL} the links configuration should be an array but was: '${links}'"
+			echo ""
+			exit 1;
+		else
+			getArray $links
+			links="${BASH_ARRAY}"
+			for link in $links; do
+				link="${link:1:-1}" # remove the quotation marks
+				# if link config doesn't have names for both host and container then mirror the naming
+				if [[ ! -z ${link/*:*/} ]]; then
+					link="${link}:${link}"
+				fi
+				if [[ ${verbose} == 1 ]]; then
+					echo -e "   - ${DIM}network/dns links to ${NORMAL}${link%:*} ${DIM}available to container as '${link#*:}'${NORMAL}"
+				fi
+				linksConfig="${linksConfig} --link $link"
+			done
+		fi
+		# VOLUMES
+		local volumesConfig=""
+		if [[ ${volumes:0:1} != "[" ]]; then
+			echo -e "${RED}${BOLD}ERROR:${NORMAL} the volumes configuration should be an array but was: '${volumes}'"
+			echo ""
+			exit 1;
+		else
+			getArray $volumes
+			volumes="${BASH_ARRAY}"
+			for volume in $volumes; do
+				volume="${volume:1:-1}" # remove the quotation marks
+				# if volume config doesn't have names for both host and container then mirror the naming
+				if [[ ! -z "${volume/*:*/}" ]]; then
+					volume="${volume}:${volume}"
+				fi
+				if [[ ${verbose} == 1 ]]; then
+					echo -e "   - ${DIM} host machine's ${NORMAL}'${volume%:*}'${DIM} filesystem will be shared to the containers ${NORMAL}'${volume#*:}'${DIM} directory ${NORMAL}"
+				fi
+				linksConfig="${volumesConfig} -v $volume"
+			done
+		fi
+		# PORTS
+		local portsConfig=""
+		if [[ ("${ports:0:1}" != "[") && "$ports" != "" ]]; then
+			echo -e "${RED}${BOLD}ERROR:${NORMAL} the ports configuration should be an array but was: '${ports}'"
+			echo ""
+			exit 1;
+		else
+			getArray $ports
+			ports="${BASH_ARRAY}"
+			for port in $ports; do
+				port="${port:1:-1}" # remove the quotation marks
+				# if volume config doesn't have names for both host and container then mirror the naming
+				if [[ ! -z "${port/*:*/}" ]]; then
+					port="${port}:${port}"
+				fi
+				if [[ ${verbose} == 1 ]]; then
+					echo -e "   - ${DIM}host machine's ${NORMAL}'${port%:*}'${DIM} port will be mapped to the containers ${NORMAL}'${port#*:}'${DIM} port ${NORMAL}"
+				fi
+				portsConfig="${portsConfig} -p ${port}"
+			done
+		fi
+		
+		dockerCommand="sudo docker run -d --name ${infraItem} ${volumesConfig}${linksConfig}${portsConfig} ${sshForward} ${dockerImage} ${command}"
+		echo -e "${BOLD}Starting ${GREEN}${infraItem}${NORMAL}"
+		echo -e "   ${DIM}${dockerCommand}${NORMAL}"
+		echo ""
+		if [[ "$forceStart" == 1 ]];then
+			echo "   - forcing stop and removal of ${infraItem} container before attempting start"
+			sudo docker stop ${infraItem} >> machine.log
+			sudo docker rm ${infraItem} >> machine.log
+		fi
+		${dockerCommand}
+	done
+	
+	echo "Currently Running Infrastructure:"
+	echo "---------------------------------"
+	sudo docker ps
+
+}
+
+
 
 
 ValidateBashVersion;
@@ -195,5 +352,9 @@ case "$1" in
 	init)
 		shift;
 		LoadLockers $@;
+		StartInfrastructure $@;
+	;;
+	*)
+		AboutMachine;
 	;;
 esac

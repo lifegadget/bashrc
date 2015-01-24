@@ -15,8 +15,6 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
   config.dns.tld = "dev" 
   config.dns.patterns = [/^bash.dev$/] 
   config.vm.network "private_network", type: "dhcp"
-  # config.ssh.private_key_path = [ '~/.vagrant.d/insecure_private_key', '~/.ssh/id_rsa' ]
-  # config.ssh.private_key_path = [ '~/.ssh/id_rsa', '~/.ssh/id_rsa' ]
   config.ssh.forward_agent = true
   config.vm.provision "shell", path: "VagrantProvisioning"
 
